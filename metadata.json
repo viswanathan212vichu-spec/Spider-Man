@@ -1,0 +1,5 @@
+{
+  "name": "GalaPass",
+  "description": "A premium event booking platform offering tiered ticketing (Gold, Silver, Bronze), seat selection, QR payments, and refund management.",
+  "requestFramePermissions": []
+}
