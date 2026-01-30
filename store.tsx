@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Event, Booking, Role } from './types';
+import { db } from './firebase';
+import { collection, addDoc, getDocs, doc, query, where, onSnapshot, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 
-// Mock Data with specific, high-quality images
-const MOCK_EVENTS: Event[] = [
+// Mock Data with specific, high-quality images (Moved to a const but not used for initialization if DB has data)
+export const MOCK_EVENTS: Event[] = [
   {
     id: '1',
     title: 'Tech Innovation Summit 2024',
@@ -78,7 +80,7 @@ interface AppContextType {
   events: Event[];
   bookings: Booking[];
   favorites: string[];
-  login: (mobile: string, name: string) => boolean;
+  login: (mobile: string, name: string) => Promise<boolean>;
   logout: () => void;
   addEvent: (event: Omit<Event, 'id' | 'totalSeats'>) => void;
   updateEvent: (event: Event) => void;
@@ -93,39 +95,99 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [events, setEvents] = useState<Event[]>(MOCK_EVENTS);
+  const [events, setEvents] = useState<Event[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
 
-  // Simulate local storage persistence
+  // Initialize Data from Firestore
   useEffect(() => {
-    const savedUser = localStorage.getItem('gp_user');
-    const savedFavs = localStorage.getItem('gp_favs');
-    const savedBookings = localStorage.getItem('gp_bookings');
-    
-    if (savedUser) setUser(JSON.parse(savedUser));
-    if (savedFavs) setFavorites(JSON.parse(savedFavs));
-    if (savedBookings) setBookings(JSON.parse(savedBookings));
+    // Real-time Events
+    const unsubscribeEvents = onSnapshot(collection(db, 'events'), (snapshot) => {
+      const eventsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Event));
+      if (eventsData.length === 0 && events.length === 0) {
+        // seed option could go here, but avoiding auto-seed
+        // Note: If you want to seed, you can uncomment this:
+        // MOCK_EVENTS.forEach(evt => addDoc(collection(db, 'events'), evt));
+      }
+      setEvents(eventsData);
+    });
+
+    // Real-time Bookings (Fetch ALL bookings to support seat maps)
+    const unsubscribeBookings = onSnapshot(collection(db, 'bookings'), (snapshot) => {
+      const bookingsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+      setBookings(bookingsData);
+    });
+
+    return () => {
+      unsubscribeEvents();
+      unsubscribeBookings();
+    };
   }, []);
 
+  // Restore session
   useEffect(() => {
-    localStorage.setItem('gp_favs', JSON.stringify(favorites));
-    localStorage.setItem('gp_bookings', JSON.stringify(bookings));
-  }, [favorites, bookings]);
+    const savedUser = localStorage.getItem('gp_user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+      // We could verify validity here
+    }
+  }, []);
 
-  const login = (mobile: string, name: string) => {
-    // Admin Verification Logic
-    const role: Role = mobile === '9876543210' ? 'ADMIN' : 'USER';
-    
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      name,
-      mobile,
-      role,
-    };
-    setUser(newUser);
-    localStorage.setItem('gp_user', JSON.stringify(newUser));
-    return role === 'ADMIN';
+  // Fetch favorites when user changes
+  useEffect(() => {
+    if (!user) {
+      setFavorites([]);
+      return;
+    }
+
+    const userRef = doc(db, 'users', user.id);
+    const unsubscribeUser = onSnapshot(userRef, (doc) => {
+      if (doc.exists()) {
+        const userData = doc.data();
+        setFavorites(userData.favorites || []);
+      }
+    });
+    return () => unsubscribeUser();
+  }, [user?.id]);
+
+  const login = async (mobile: string, name: string): Promise<boolean> => {
+    try {
+      const role: Role = mobile === '9876543210' ? 'ADMIN' : 'USER';
+
+      // Query if user exists by mobile
+      const q = query(collection(db, 'users'), where('mobile', '==', mobile));
+      const querySnapshot = await getDocs(q);
+
+      let currentUser: User;
+
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        const userData = userDoc.data();
+        currentUser = { id: userDoc.id, name: userData.name, mobile: userData.mobile, role: userData.role || role };
+
+        // Update name if changed
+        if (currentUser.name !== name) {
+          await updateDoc(doc(db, 'users', currentUser.id), { name });
+          currentUser.name = name;
+        }
+      } else {
+        // Create new user
+        const newUserRef = await addDoc(collection(db, 'users'), {
+          name,
+          mobile,
+          role,
+          favorites: []
+        });
+        currentUser = { id: newUserRef.id, name, mobile, role };
+      }
+
+      setUser(currentUser);
+      localStorage.setItem('gp_user', JSON.stringify(currentUser));
+      return currentUser.role === 'ADMIN';
+    } catch (error) {
+      console.error("Login failed:", error);
+      return false;
+    }
   };
 
   const logout = () => {
@@ -133,64 +195,68 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     localStorage.removeItem('gp_user');
   };
 
-  const addEvent = (eventData: Omit<Event, 'id' | 'totalSeats'>) => {
-    // Calculate total seats based on row configuration (10 seats per row)
+  const addEvent = async (eventData: Omit<Event, 'id' | 'totalSeats'>) => {
     const totalSeats = eventData.tiers.reduce((acc, tier) => acc + (tier.rows.length * 10), 0);
-    
-    const newEvent: Event = {
+    const newEvent = {
       ...eventData,
-      id: Math.random().toString(36).substr(2, 9),
       totalSeats
     };
-    setEvents(prev => [newEvent, ...prev]);
+    await addDoc(collection(db, 'events'), newEvent);
   };
 
-  const updateEvent = (updatedEvent: Event) => {
+  const updateEvent = async (updatedEvent: Event) => {
     const totalSeats = updatedEvent.tiers.reduce((acc, tier) => acc + (tier.rows.length * 10), 0);
-    const eventWithSeats = { ...updatedEvent, totalSeats };
-    setEvents(prev => prev.map(e => e.id === updatedEvent.id ? eventWithSeats : e));
+    const eventRef = doc(db, 'events', updatedEvent.id);
+    // Destructure to avoid sending ID in data if not needed, but typical updateDoc handles it?
+    // Firestore updateDoc takes partial data.
+    const { id, ...data } = updatedEvent;
+    await updateDoc(eventRef, { ...data, totalSeats });
   };
 
-  const deleteEvent = (id: string) => {
-    setEvents(prev => prev.filter(e => e.id !== id));
+  const deleteEvent = async (id: string) => {
+    await deleteDoc(doc(db, 'events', id));
   };
 
-  const toggleFavorite = (eventId: string) => {
-    setFavorites(prev => 
-      prev.includes(eventId) ? prev.filter(id => id !== eventId) : [...prev, eventId]
-    );
+  const toggleFavorite = async (eventId: string) => {
+    if (!user) return;
+    const isFavorite = favorites.includes(eventId);
+    const newFavorites = isFavorite
+      ? favorites.filter(id => id !== eventId)
+      : [...favorites, eventId];
+
+    // Optimistic update
+    setFavorites(newFavorites);
+
+    const userRef = doc(db, 'users', user.id);
+    await updateDoc(userRef, { favorites: newFavorites });
   };
 
   const bookEvent = async (eventId: string, tierName: 'Gold' | 'Silver' | 'Bronze', seats: string[], amount: number): Promise<boolean> => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        if (!user) {
-          resolve(false);
-          return;
-        }
+    if (!user) return false;
 
-        const newBooking: Booking = {
-          id: Math.random().toString(36).substr(2, 9),
-          eventId,
-          userId: user.id,
-          tierName,
-          seats,
-          totalAmount: amount,
-          timestamp: new Date().toISOString(),
-          status: 'CONFIRMED',
-          qrCodeData: `GALAPASS-${eventId}-${user.id}-${Math.random().toString(36).substr(2, 5)}`
-        };
+    try {
+      const newBooking: Omit<Booking, 'id'> = {
+        eventId,
+        userId: user.id,
+        tierName,
+        seats,
+        totalAmount: amount,
+        timestamp: new Date().toISOString(),
+        status: 'CONFIRMED',
+        qrCodeData: `GALAPASS-${eventId}-${user.id}-${Math.random().toString(36).substr(2, 5)}`
+      };
 
-        setBookings(prev => [...prev, newBooking]);
-        resolve(true);
-      }, 2000); // Simulate network/payment delay
-    });
+      await addDoc(collection(db, 'bookings'), newBooking);
+      return true;
+    } catch (e) {
+      console.error("Booking failed", e);
+      return false;
+    }
   };
 
-  const cancelBooking = (bookingId: string) => {
-    setBookings(prev => prev.map(b => 
-      b.id === bookingId ? { ...b, status: 'REFUNDED' } : b
-    ));
+  const cancelBooking = async (bookingId: string) => {
+    const bookingRef = doc(db, 'bookings', bookingId);
+    await updateDoc(bookingRef, { status: 'REFUNDED' });
   };
 
   const getBookedSeats = (eventId: string) => {
@@ -200,9 +266,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   return (
-    <AppContext.Provider value={{ 
-      user, events, bookings, favorites, login, logout, addEvent, updateEvent, deleteEvent, 
-      bookEvent, cancelBooking, toggleFavorite, getBookedSeats 
+    <AppContext.Provider value={{
+      user, events, bookings, favorites, login, logout, addEvent, updateEvent, deleteEvent,
+      bookEvent, cancelBooking, toggleFavorite, getBookedSeats
     }}>
       {children}
     </AppContext.Provider>

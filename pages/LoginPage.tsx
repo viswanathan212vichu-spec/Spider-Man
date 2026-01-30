@@ -9,10 +9,10 @@ export const LoginPage: React.FC = () => {
   const [mobile, setMobile] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     if (!name.trim()) {
       setError('Please enter your name');
       return;
@@ -21,16 +21,20 @@ export const LoginPage: React.FC = () => {
       setError('Please enter a valid 10-digit mobile number');
       return;
     }
-    
-    const isAdmin = login(mobile, name);
-    window.location.hash = isAdmin ? '#/admin' : '#/events';
+
+    try {
+      const isAdmin = await login(mobile, name);
+      window.location.hash = isAdmin ? '#/admin' : '#/events';
+    } catch (e) {
+      setError('Login failed. Please try again.');
+    }
   };
 
   return (
     <div className="min-h-[85vh] flex flex-col items-center justify-center p-4 bg-gradient-to-br from-slate-50 to-indigo-50">
       <div className="mb-8 text-center">
         <div className="inline-flex items-center justify-center p-4 bg-indigo-600 rounded-2xl shadow-lg mb-4">
-           <Shield className="h-10 w-10 text-white" />
+          <Shield className="h-10 w-10 text-white" />
         </div>
         <h1 className="text-5xl font-extrabold text-slate-900 tracking-tight mb-3">GalaPass</h1>
         <p className="text-slate-600 max-w-md mx-auto text-lg">
@@ -41,8 +45,8 @@ export const LoginPage: React.FC = () => {
       <Card className="w-full max-w-md p-8 shadow-xl border-t-4 border-t-indigo-600">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2 text-center mb-6">
-             <h2 className="text-xl font-bold text-slate-800">Sign in to your account</h2>
-             <p className="text-sm text-slate-500">Verify your mobile number to continue</p>
+            <h2 className="text-xl font-bold text-slate-800">Sign in to your account</h2>
+            <p className="text-sm text-slate-500">Verify your mobile number to continue</p>
           </div>
 
           <Input
