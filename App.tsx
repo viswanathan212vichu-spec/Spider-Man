@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { AppProvider } from './store';
-import { Layout, ProtectedRoute } from './components/Layout';
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AppProvider } from './store'; // Keeping existing store if needed for other things
+import { Layout } from './components/Layout';
+import { ProtectedRoute } from './components/ProtectedRoute'; // Using NEW ProtectedRoute
 import { LoginPage } from './pages/LoginPage';
+import { SignUpPage } from './pages/SignUpPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { UserDashboard } from './pages/UserDashboard';
 import { EventDetailsPage } from './pages/EventDetailsPage';
@@ -9,77 +12,59 @@ import { MyTicketsPage } from './pages/MyTicketsPage';
 import { FavoritesPage } from './pages/FavoritesPage';
 
 const AppContent: React.FC = () => {
-  const [currentHash, setCurrentHash] = useState(window.location.hash || '#/');
+  return (
+    <Routes>
+      {/* Public Routes */}
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignUpPage />} />
 
-  useEffect(() => {
-    const handleHashChange = () => setCurrentHash(window.location.hash || '#/');
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
-  // Simple Router based on hash
-  const renderPage = () => {
-    if (currentHash === '#/') {
-      return <LoginPage />;
-    }
-    
-    if (currentHash.startsWith('#/admin')) {
-      return (
+      {/* Protected Routes */}
+      <Route path="/admin" element={
         <ProtectedRoute allowedRoles={['ADMIN']}>
           <Layout>
             <AdminDashboard />
           </Layout>
         </ProtectedRoute>
-      );
-    }
-    
-    if (currentHash.startsWith('#/events')) {
-      return (
+      } />
+
+      <Route path="/events" element={
         <ProtectedRoute allowedRoles={['USER', 'ADMIN']}>
           <Layout>
             <UserDashboard />
           </Layout>
         </ProtectedRoute>
-      );
-    }
+      } />
 
-    if (currentHash.startsWith('#/event/')) {
-       return (
+      <Route path="/event/:id" element={
         <ProtectedRoute allowedRoles={['USER', 'ADMIN']}>
           <Layout>
             <EventDetailsPage />
           </Layout>
         </ProtectedRoute>
-      );
-    }
+      } />
 
-    if (currentHash.startsWith('#/my-tickets')) {
-       return (
+      <Route path="/my-tickets" element={
         <ProtectedRoute allowedRoles={['USER']}>
           <Layout>
             <MyTicketsPage />
           </Layout>
         </ProtectedRoute>
-      );
-    }
+      } />
 
-    if (currentHash.startsWith('#/favorites')) {
-       return (
+      <Route path="/favorites" element={
         <ProtectedRoute allowedRoles={['USER']}>
           <Layout>
             <FavoritesPage />
           </Layout>
         </ProtectedRoute>
-      );
-    }
+      } />
 
-    return <div className="p-8 text-center">Page not found</div>;
-  };
+      {/* Default redirect */}
+      <Route path="/" element={<Navigate to="/events" replace />} />
 
-  return (
-    <>
-      {renderPage()}
-    </>
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
   );
 };
 

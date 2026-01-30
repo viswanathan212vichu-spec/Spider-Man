@@ -3,12 +3,12 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCp96kJUdQurGtjffPpnznneMjxYGwdmxM",
-  authDomain: "im-ironman02.firebaseapp.com",
-  projectId: "im-ironman02",
-  storageBucket: "im-ironman02.firebasestorage.app",
-  messagingSenderId: "636155353146",
-  appId: "1:636155353146:web:99b02ca7a27282e6827d03"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);

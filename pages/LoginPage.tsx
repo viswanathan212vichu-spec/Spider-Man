@@ -1,32 +1,39 @@
 import React, { useState } from 'react';
-import { useStore } from '../store';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { Button, Card, Input } from '../components/UI';
-import { Phone, ArrowRight, Shield } from 'lucide-react';
+import { Mail, ArrowRight, Shield, Lock } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login } = useStore();
-  const [name, setName] = useState('');
-  const [mobile, setMobile] = useState('');
+  const { login } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const from = location.state?.from?.pathname || '/';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
-    if (!name.trim()) {
-      setError('Please enter your name');
-      return;
-    }
-    if (mobile.length !== 10 || isNaN(Number(mobile))) {
-      setError('Please enter a valid 10-digit mobile number');
-      return;
-    }
+    setLoading(true);
 
     try {
-      const isAdmin = await login(mobile, name);
-      window.location.hash = isAdmin ? '#/admin' : '#/events';
-    } catch (e) {
-      setError('Login failed. Please try again.');
+      await login(email, password);
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      console.error('Login error:', err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please try again later.');
+      } else {
+        setError('Failed to log in. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -46,37 +53,48 @@ export const LoginPage: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2 text-center mb-6">
             <h2 className="text-xl font-bold text-slate-800">Sign in to your account</h2>
-            <p className="text-sm text-slate-500">Verify your mobile number to continue</p>
+            <p className="text-sm text-slate-500">Enter your credentials to continue</p>
           </div>
 
           <Input
-            label="Full Name"
-            placeholder="e.g. John Doe"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            label="Email Address"
+            type="email"
+            placeholder="e.g. john@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
             autoFocus
+            icon={Mail}
           />
 
           <Input
-            label="Mobile Number"
-            type="tel"
-            maxLength={10}
-            placeholder="e.g. 9876543210"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
+            label="Password"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             error={error}
             required
+            icon={Lock}
           />
 
-          <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" size="lg" icon={ArrowRight}>
-            Verify & Continue
+          <Button
+            type="submit"
+            className="w-full bg-indigo-600 hover:bg-indigo-700"
+            size="lg"
+            icon={ArrowRight}
+            disabled={loading}
+          >
+            {loading ? 'Logging in...' : 'Sign In'}
           </Button>
 
-          <div className="bg-slate-50 p-3 rounded-lg text-xs text-slate-500 text-center border border-slate-100">
-            <p className="font-semibold mb-1">Demo Credentials:</p>
-            <p>Admin: <span className="font-mono text-indigo-600">9876543210</span></p>
-            <p>User: <span className="font-mono text-indigo-600">Any other number</span></p>
+          <div className="text-center mt-4">
+            <p className="text-sm text-slate-600">
+              Don't have an account?{' '}
+              <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors">
+                Create one now
+              </Link>
+            </p>
           </div>
         </form>
       </Card>
