@@ -1,316 +1,315 @@
-import React, { useState } from 'react';
-import { useStore, MOCK_EVENTS } from '../store';
-import { Event } from '../types';
-import { Button, Input, Modal, Badge, Card } from '../components/UI';
-import { Plus, Trash2, Calendar, MapPin, Monitor, Edit2, IndianRupee, TrendingUp, Database } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Event, getEvents, createEvent, updateEvent, deleteEvent } from '../services/eventService';
+import { useAuth } from '../context/AuthContext';
+import EventForm from '../components/EventForm';
+import { Button, Card, Badge, Modal } from '../components/UI';
+import { Plus, Trash2, Calendar, MapPin, Edit2, DollarSign, Users, TrendingUp, AlertCircle } from 'lucide-react';
+import { Timestamp } from 'firebase/firestore';
 
 export const AdminDashboard: React.FC = () => {
-  const { events, addEvent, updateEvent, deleteEvent, bookings } = useStore();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
-  // Calculate Total Revenue from confirmed bookings
-  const totalRevenue = bookings
-    .filter(b => b.status === 'CONFIRMED')
-    .reduce((sum, b) => sum + b.totalAmount, 0);
+  // Fetch events on mount
+  useEffect(() => {
+    fetchEvents();
+  }, []);
 
-  // Form State with rows as strings for easier editing
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    date: new Date().toISOString().split('T')[0],
-    time: '12:00',
-    location: '',
-    mode: 'In-Person' as 'In-Person' | 'Online',
-    category: 'General',
-    image: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=800&q=80',
-    tiers: [
-      { name: 'Gold', price: 2000, rows: 'A, B' },
-      { name: 'Silver', price: 1000, rows: 'C, D' },
-      { name: 'Bronze', price: 500, rows: 'E, F' }
-    ]
-  });
+  const fetchEvents = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const fetchedEvents = await getEvents();
+      setEvents(fetchedEvents);
+    } catch (err) {
+      console.error('Error fetching events:', err);
+      setError('Failed to load events. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleTierChange = (index: number, field: string, value: any) => {
-    const newTiers = [...formData.tiers];
-    // @ts-ignore
-    newTiers[index][field] = value;
-    setFormData({ ...formData, tiers: newTiers });
+  const handleCreateEvent = async (eventData: Omit<Event, 'id' | 'createdAt' | 'updatedAt' | 'bookedCount' | 'createdBy'>) => {
+    if (!user) return;
+
+    setFormLoading(true);
+    setError('');
+    try {
+      await createEvent(eventData, user.uid);
+      await fetchEvents();
+      setIsFormOpen(false);
+      setSuccessMessage('Event created successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Error creating event:', err);
+      setError('Failed to create event. Please try again.');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const handleUpdateEvent = async (eventData: Omit<Event, 'id' | 'createdAt' | 'updatedAt' | 'bookedCount' | 'createdBy'>) => {
+    if (!editingEvent?.id) return;
+
+    setFormLoading(true);
+    setError('');
+    try {
+      await updateEvent(editingEvent.id, eventData);
+      await fetchEvents();
+      setEditingEvent(null);
+      setIsFormOpen(false);
+      setSuccessMessage('Event updated successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Error updating event:', err);
+      setError('Failed to update event. Please try again.');
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!window.confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+      return;
+    }
+
+    setError('');
+    try {
+      await deleteEvent(eventId);
+      await fetchEvents();
+      setSuccessMessage('Event deleted successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Error deleting event:', err);
+      setError('Failed to delete event. Please try again.');
+    }
   };
 
   const openCreateModal = () => {
-    setEditingEventId(null);
-    setFormData({
-      title: '',
-      description: '',
-      date: new Date().toISOString().split('T')[0],
-      time: '12:00',
-      location: '',
-      mode: 'In-Person',
-      category: 'General',
-      image: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=800&q=80',
-      tiers: [
-        { name: 'Gold', price: 2000, rows: 'A, B' },
-        { name: 'Silver', price: 1000, rows: 'C, D' },
-        { name: 'Bronze', price: 500, rows: 'E, F' }
-      ]
-    });
-    setIsModalOpen(true);
+    setEditingEvent(null);
+    setIsFormOpen(true);
   };
 
   const openEditModal = (event: Event) => {
-    setEditingEventId(event.id);
-    setFormData({
-      title: event.title,
-      description: event.description,
-      date: event.date,
-      time: event.time,
-      location: event.location,
-      mode: event.mode,
-      category: event.category,
-      image: event.image,
-      tiers: event.tiers.map(t => ({
-        name: t.name,
-        price: t.price,
-        rows: t.rows.join(', ')
-      }))
+    setEditingEvent(event);
+    setIsFormOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsFormOpen(false);
+    setEditingEvent(null);
+  };
+
+  // Format date for display
+  const formatDate = (date: Timestamp | Date | undefined) => {
+    if (!date) return 'TBD';
+    const dateObj = date instanceof Timestamp ? date.toDate() : new Date(date);
+    return dateObj.toLocaleDateString('en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
-    setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this event?')) {
-      deleteEvent(id);
-    }
-  };
+  // Calculate stats
+  const totalEvents = events.length;
+  const activeEvents = events.filter(e => e.status === 'active').length;
+  const totalCapacity = events.reduce((sum, e) => sum + (e.capacity || 0), 0);
+  const totalBooked = events.reduce((sum, e) => sum + (e.bookedCount || 0), 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Transform rows string back to array
-    const tiersPayload = formData.tiers.map(t => ({
-      name: t.name as 'Gold' | 'Silver' | 'Bronze',
-      price: Number(t.price),
-      rows: t.rows.split(',').map(s => s.trim()).filter(s => s.length > 0)
-    }));
-
-    const payload = {
-      ...formData,
-      tiers: tiersPayload
-    };
-
-    if (editingEventId) {
-      updateEvent({ ...payload, id: editingEventId } as Event);
-    } else {
-      addEvent(payload as Omit<Event, 'id' | 'totalSeats'>);
-    }
-    setIsModalOpen(false);
-  };
-
-  const sortedEvents = [...events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Sort events by date (newest first)
+  const sortedEvents = [...events].sort((a, b) => {
+    const dateA = a.date instanceof Timestamp ? a.date.toDate() : new Date(a.date);
+    const dateB = b.date instanceof Timestamp ? b.date.toDate() : new Date(b.date);
+    return dateB.getTime() - dateA.getTime();
+  });
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Admin Dashboard</h1>
-          <p className="text-slate-500">Manage your GalaPass events and pricing.</p>
+          <p className="text-slate-500">Manage your GalaPass events.</p>
         </div>
-        <div className="flex gap-2">
-          {events.length === 0 && (
-            <Button
-              onClick={() => MOCK_EVENTS.forEach(({ id, totalSeats, ...e }) => addEvent(e))}
-              variant="secondary"
-              icon={Database}
-            >
-              Seed Data
-            </Button>
-          )}
-          <Button onClick={openCreateModal} icon={Plus} className="bg-indigo-600 hover:bg-indigo-700">Create New Event</Button>
-        </div>
+        <Button onClick={openCreateModal} icon={Plus} className="bg-indigo-600 hover:bg-indigo-700">
+          Create New Event
+        </Button>
       </div>
 
-      {/* Revenue Stats */}
-      <Card className="p-6 bg-gradient-to-br from-indigo-600 to-purple-700 text-white shadow-xl border-none relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-8 opacity-10">
-          <TrendingUp className="h-32 w-32 text-white" />
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+          {successMessage}
         </div>
-        <div className="relative z-10 flex items-center gap-6">
-          <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm shadow-inner">
-            <IndianRupee className="h-10 w-10 text-white" />
-          </div>
-          <div>
-            <p className="text-indigo-100 font-medium text-lg mb-1">Total Revenue Generated</p>
-            <h2 className="text-4xl font-extrabold tracking-tight">₹{totalRevenue.toLocaleString('en-IN')}</h2>
-          </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+          <AlertCircle className="h-5 w-5" />
+          {error}
         </div>
-      </Card>
+      )}
 
-      <div className="grid gap-6">
-        {sortedEvents.map(event => (
-          <Card key={event.id} className="flex flex-col md:flex-row p-0 transition-all hover:shadow-md group">
-            <div className="w-full md:w-56 h-48 md:h-auto relative overflow-hidden shrink-0">
-              <img src={event.image} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-              <div className="absolute top-2 left-2">
-                <Badge variant="neutral">{event.mode}</Badge>
-              </div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <TrendingUp className="h-6 w-6" />
             </div>
-            <div className="flex-1 p-6 flex flex-col justify-between">
-              <div className="space-y-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-900">{event.title}</h3>
-                    <p className="text-sm text-slate-500 font-medium">{event.category}</p>
-                  </div>
-                </div>
-
-                <p className="text-slate-600 text-sm line-clamp-2">{event.description}</p>
-
-                <div className="flex flex-wrap gap-4 text-sm text-slate-500 mt-2">
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-4 w-4" />
-                    {new Date(event.date).toLocaleDateString()}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {event.mode === 'Online' ? <Monitor className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
-                    {event.location}
-                  </div>
-                </div>
-
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {event.tiers.map(t => (
-                    <span key={t.name} className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200">
-                      {t.name} ({t.rows.join(',')}): ₹{t.price}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
-                <Button variant="secondary" size="sm" icon={Edit2} onClick={() => openEditModal(event)}>Edit</Button>
-                <Button variant="danger" size="sm" icon={Trash2} onClick={() => handleDelete(event.id)}>Delete</Button>
-              </div>
+            <div>
+              <p className="text-indigo-100 text-sm">Total Events</p>
+              <p className="text-2xl font-bold">{totalEvents}</p>
             </div>
-          </Card>
-        ))}
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-green-500 to-green-600 text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <Calendar className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-green-100 text-sm">Active Events</p>
+              <p className="text-2xl font-bold">{activeEvents}</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <Users className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-purple-100 text-sm">Total Capacity</p>
+              <p className="text-2xl font-bold">{totalCapacity}</p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-4 bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <DollarSign className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-orange-100 text-sm">Tickets Booked</p>
+              <p className="text-2xl font-bold">{totalBooked}</p>
+            </div>
+          </div>
+        </Card>
       </div>
+
+      {/* Loading State */}
+      {loading && (
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && events.length === 0 && (
+        <Card className="p-12 text-center">
+          <Calendar className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-700 mb-2">No Events Yet</h3>
+          <p className="text-slate-500 mb-4">Create your first event to get started.</p>
+          <Button onClick={openCreateModal} icon={Plus} className="bg-indigo-600 hover:bg-indigo-700">
+            Create Event
+          </Button>
+        </Card>
+      )}
+
+      {/* Event List */}
+      {!loading && events.length > 0 && (
+        <div className="grid gap-4">
+          {sortedEvents.map(event => (
+            <Card key={event.id} className="flex flex-col md:flex-row p-0 transition-all hover:shadow-md group overflow-hidden">
+              {/* Event Image */}
+              <div className="w-full md:w-56 h-48 md:h-auto relative overflow-hidden shrink-0 bg-slate-100">
+                {event.imageUrl ? (
+                  <img
+                    src={event.imageUrl}
+                    alt={event.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Calendar className="h-12 w-12 text-slate-300" />
+                  </div>
+                )}
+                <div className="absolute top-2 left-2">
+                  <Badge variant={event.status === 'active' ? 'success' : event.status === 'cancelled' ? 'danger' : 'neutral'}>
+                    {event.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Event Details */}
+              <div className="flex-1 p-6 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900">{event.title}</h3>
+                    </div>
+                    <span className="text-lg font-bold text-indigo-600">${event.price}</span>
+                  </div>
+
+                  <p className="text-slate-600 text-sm line-clamp-2">{event.description}</p>
+
+                  <div className="flex flex-wrap gap-4 text-sm text-slate-500 mt-2">
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-4 w-4" />
+                      {formatDate(event.date)}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <MapPin className="h-4 w-4" />
+                      {event.venue}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Users className="h-4 w-4" />
+                      {event.bookedCount || 0} / {event.capacity} booked
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
+                  <Button variant="secondary" size="sm" icon={Edit2} onClick={() => openEditModal(event)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" icon={Trash2} onClick={() => event.id && handleDeleteEvent(event.id)}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title={editingEventId ? "Edit Event" : "Create New Event"}
+        isOpen={isFormOpen}
+        onClose={closeModal}
+        title={editingEvent ? "Edit Event" : "Create New Event"}
       >
-        <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-          <Input
-            label="Event Title"
-            value={formData.title}
-            onChange={e => setFormData({ ...formData, title: e.target.value })}
-            required
-          />
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-slate-700">Image URL</label>
-            <Input
-              value={formData.image}
-              onChange={e => setFormData({ ...formData, image: e.target.value })}
-              required
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Date"
-              type="date"
-              value={formData.date}
-              onChange={e => setFormData({ ...formData, date: e.target.value })}
-              required
-            />
-            <Input
-              label="Time"
-              type="time"
-              value={formData.time}
-              onChange={e => setFormData({ ...formData, time: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Mode</label>
-              <select
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 outline-none"
-                value={formData.mode}
-                onChange={e => setFormData({ ...formData, mode: e.target.value as any })}
-              >
-                <option value="In-Person">In-Person</option>
-                <option value="Online">Online</option>
-              </select>
-            </div>
-            <Input
-              label="Venue / Link"
-              value={formData.location}
-              onChange={e => setFormData({ ...formData, location: e.target.value })}
-              required
-            />
-          </div>
-
-          <Input
-            label="Category"
-            value={formData.category}
-            onChange={e => setFormData({ ...formData, category: e.target.value })}
-            placeholder="e.g. Technology, Music"
-            required
-          />
-
-          <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
-            <h4 className="font-semibold text-sm text-slate-800">Ticket Tiers & Seating</h4>
-            <p className="text-xs text-slate-500 -mt-2 mb-2">Define price and assign rows (e.g. "A, B") for each tier. Seats 1-10 are auto-generated per row.</p>
-            {formData.tiers.map((tier, index) => (
-              <div key={tier.name} className="p-3 bg-white rounded border border-slate-100 shadow-sm">
-                <div className="flex justify-between items-center mb-2">
-                  <span className={`font-bold text-sm ${tier.name === 'Gold' ? 'text-amber-600' : tier.name === 'Silver' ? 'text-slate-500' : 'text-orange-700'}`}>
-                    {tier.name} Tier
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Price (₹)</label>
-                    <input
-                      type="number"
-                      value={tier.price}
-                      onChange={(e) => handleTierChange(index, 'price', Number(e.target.value))}
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Rows (comma separated)</label>
-                    <input
-                      type="text"
-                      value={tier.rows}
-                      onChange={(e) => handleTierChange(index, 'rows', e.target.value)}
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm focus:border-indigo-500 outline-none"
-                      placeholder="e.g. A, B"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-slate-700">Description</label>
-            <textarea
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 outline-none focus:ring-1 focus:ring-indigo-500"
-              rows={3}
-              value={formData.description}
-              onChange={e => setFormData({ ...formData, description: e.target.value })}
-              required
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700">{editingEventId ? "Update Event" : "Publish Event"}</Button>
-          </div>
-        </form>
+        <EventForm
+          initialData={editingEvent || undefined}
+          onSubmit={editingEvent ? handleUpdateEvent : handleCreateEvent}
+          onCancel={closeModal}
+          loading={formLoading}
+        />
       </Modal>
     </div>
   );
