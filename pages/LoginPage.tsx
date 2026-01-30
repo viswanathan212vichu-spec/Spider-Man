@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button, Card, Input } from '../components/UI';
 import { Mail, ArrowRight, Shield, Lock } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 export const LoginPage: React.FC = () => {
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: authLoading, userData } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -13,7 +15,13 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = location.state?.from?.pathname || '/';
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && userData) {
+      const destination = userData.role === 'ADMIN' ? '/admin' : '/events';
+      navigate(destination, { replace: true });
+    }
+  }, [isAuthenticated, authLoading, userData, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,10 +29,18 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await login(email, password);
-      navigate(from, { replace: true });
+      const userCredential = await login(email, password);
+
+      // Fetch user role to determine redirect
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+      const role = userDoc.data()?.role || 'USER';
+
+      // Role-based redirect
+      const destination = role === 'ADMIN' ? '/admin' : '/events';
+      navigate(destination, { replace: true });
     } catch (err: any) {
       console.error('Login error:', err);
+      setLoading(false);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         setError('Invalid email or password');
       } else if (err.code === 'auth/too-many-requests') {
@@ -32,10 +48,17 @@ export const LoginPage: React.FC = () => {
       } else {
         setError('Failed to log in. Please try again.');
       }
-    } finally {
-      setLoading(false);
     }
   };
+
+  // Show loading while checking auth state
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50">
+        <p className="text-slate-600">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[85vh] flex flex-col items-center justify-center p-4 bg-gradient-to-br from-slate-50 to-indigo-50">
